@@ -14,6 +14,31 @@
 
 define("orion/editor/textMateStyler", ['orion/editor/regex'], function(mRegex) {
 
+if (!Array.prototype.indexOf) {
+	Array.prototype.indexOf = function(searchElement, fromIndex) {
+		var o = Object(this);
+		var len = this.length >>> 0;
+		if (len === 0) { return -1; }
+		var n;
+		if (typeof fromIndex === "undefined") {
+			n = 0;
+		} else {
+			var number = Number(fromIndex);
+			if (isNaN(number)) { n = 0; }
+			else if (number === 0 || number === Infinity || number === -Infinity) { n = 0; }
+			else { n = (number < 0 ? -1 : 1) * Math.floor(Math.abs(number)); }
+		}
+		if (n >= len) { return -1; }
+		var k = (n >= 0) ? n : Math.max(len - Math.abs(n), 0);
+		for (; k < len; k++) {
+			if (k in o && o[k] === searchElement) {
+				return k;
+			}
+		}
+		return -1;
+	};
+}
+
 var RegexUtil = {
 	// Rules to detect some unsupported Oniguruma features
 	unsupported: [
@@ -38,21 +63,21 @@ var RegexUtil = {
 			var insideCharacterClass = false;
 			var len = str.length;
 			for (var i=0; i < len; ) {
-				var chr = str[i];
+				var chr = str.charAt(i);
 				if (!insideCharacterClass && chr === "#") {
 					// skip to eol
 					while (i < len && chr !== "\r" && chr !== "\n") {
-						chr = str[++i];
+						chr = str.charAt(++i);
 					}
 				} else if (!insideCharacterClass && /\s/.test(chr)) {
 					// skip whitespace
 					while (i < len && /\s/.test(chr)) { 
-						chr = str[++i];
+						chr = str.charAt(++i);
 					}
 				} else if (chr === "\\") {
 					result += chr;
-					if (!/\s/.test(str[i+1])) {
-						result += str[i+1];
+					if (!/\s/.test(str.charAt(i+1))) {
+						result += str.charAt(i+1);
 						i += 1;
 					}
 					i += 1;
@@ -107,7 +132,7 @@ var RegexUtil = {
 			    len = pat.length,
 			    flagStop = -1;
 			for (var i=start; i < len && flagStop === -1; i++) {
-				switch (pat[i]) {
+				switch (pat.charAt(i)) {
 					case "\\":
 						i++; // escape: skip next char
 						break;
@@ -194,7 +219,7 @@ var RegexUtil = {
 		    consuming = {};
 		for (var i=0; i < len; i++) {
 			var curGroup = groups[groups.length-1];
-			var chr = src[i];
+			var chr = src.charAt(i);
 			switch (chr) {
 				case "(":
 					// If we're in new capturing group, close it since ( signals end-of-term
@@ -203,7 +228,7 @@ var RegexUtil = {
 						result.push(")");
 						newGroups[newGroups.length-1].end = i;
 					}
-					var peek2 = (i + 2 < len) ? (src[i+1] + "" + src[i+2]) : null;
+					var peek2 = (i + 2 < len) ? (src.charAt(i+1) + "" + src.charAt(i+2)) : null;
 					if (peek2 === "?:" || peek2 === "?=" || peek2 === "?!") {
 						// Found non-capturing group or lookahead assertion. Note that we preserve non-capturing groups
 						// as such, but any term inside them will become a new capturing group (unless it happens to
@@ -245,11 +270,11 @@ var RegexUtil = {
 					// Unary operator. If it's being applied to a capturing group, we need to add a new capturing group
 					// enclosing the pair
 					var op = chr;
-					var prev = src[i-1],
+					var prev = src.charAt(i-1),
 					    prevIndex = i-1;
 					if (chr === "}") {
-						for (var j=i-1; src[j] !== "{" && j >= 0; j--) {}
-						prev = src[j-1];
+						for (var j=i-1; src.charAt(j) !== "{" && j >= 0; j--) {}
+						prev = src.charAt(j-1);
 						prevIndex = j-1;
 						op = src.substring(j, i+1);
 					}
@@ -294,7 +319,7 @@ var RegexUtil = {
 					}
 					result.push(chr);
 					if (chr === "\\") {
-						var peek = src[i+1];
+						var peek = src.charAt(i+1);
 						// Eat next so following iteration doesn't think it's a real special character
 						result.push(peek);
 						i += 1;
@@ -404,8 +429,8 @@ var RegexUtil = {
 	function TextMateStyler(textView, grammar, externalGrammars) {
 		this.initialize(textView);
 		// Copy grammar object(s) since we will mutate them
-		this.grammar = this.copy(grammar);
-		this.externalGrammars = externalGrammars ? this.copy(externalGrammars) : [];
+		this.grammar = this.clone(grammar);
+		this.externalGrammars = externalGrammars ? this.clone(externalGrammars) : [];
 		
 		this._styles = {}; /* key: {String} scopeName, value: {String[]} cssClassNames */
 		this._tree = null;
@@ -447,9 +472,36 @@ var RegexUtil = {
 			this._tree = null;
 			this._listener = null;
 		},
-		/** @private */
-		copy: function(obj) {
-			return JSON.parse(JSON.stringify(obj));
+		/**
+		 * @private
+		 * @param obj {Object} A JSON-ish object.
+		 * @returns {Object} Deep copy of <code>obj</code>. Does not work on properties that are functions or RegExp instances.
+		 */
+		clone: function(obj) {
+			function _clone(/**Object*/ o) {
+				if (o === null) {
+					return o;
+				} else if (o instanceof Array) {
+					var o2 = [];
+					for (var i=0; i < o.length; i++) {
+						o2[i] = _clone(o[i]);
+					}
+					return o2;
+				}
+				var c = {};
+				for (var prop in o) {
+					if (Object.prototype.hasOwnProperty.call(o, prop)) {
+						var value = o[prop];
+						if (typeof value === "object") {
+							c[prop] = _clone(value);
+						} else {
+							c[prop] = value;
+						}
+					}
+				}
+				return c;
+			}
+			return _clone(obj);
 		},
 		/** @private */
 		preprocess: function(grammar) {
@@ -599,7 +651,7 @@ var RegexUtil = {
 					throw new Error("Unexpected regex pattern in \"include\" rule " + rule.include);
 				}
 				var name = rule.include;
-				if (name[0] === "#") {
+				if (name.charAt(0) === "#") {
 					resolved = this.grammar.repository && this.grammar.repository[name.substring(1)];
 					if (!resolved) { throw new Error("Couldn't find included rule " + name + " in grammar repository"); }
 				} else if (name === "$self") {
