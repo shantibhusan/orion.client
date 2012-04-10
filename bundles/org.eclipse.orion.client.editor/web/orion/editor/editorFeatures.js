@@ -13,8 +13,8 @@
 /*jslint maxerr:150 browser:true devel:true */
 
 define("orion/editor/editorFeatures", ['i18n!orion/editor/nls/messages', 'orion/textview/undoStack', 'orion/textview/keyBinding',
-	'orion/textview/rulers', 'orion/textview/annotations', 'orion/textview/textDND', 'orion/editor/regex', 'orion/textview/util'],
-function(messages, mUndoStack, mKeyBinding, mRulers, mAnnotations, mTextDND, mRegex, mUtil) {
+	'orion/textview/rulers', 'orion/textview/annotations', 'orion/textview/tooltip', 'orion/textview/textDND', 'orion/editor/regex', 'orion/textview/util'],
+function(messages, mUndoStack, mKeyBinding, mRulers, mAnnotations, mTooltip, mTextDND, mRegex, mUtil) {
 
 	function UndoFactory() {
 	}
@@ -443,6 +443,83 @@ function(messages, mUndoStack, mKeyBinding, mRulers, mAnnotations, mTextDND, mRe
 				if (line) {
 					line = parseInt(line, 10);
 					editor.onGotoLine(line - 1, 0);
+				}
+				return true;
+			}.bind(this));
+			
+			this.textView.setKeyBinding(new mKeyBinding.KeyBinding(190, true), messages.nextAnnotation);
+			this.textView.setAction(messages.nextAnnotation, function() {
+				var editor = this.editor;
+				var annotationModel = editor.getAnnotationModel();
+				if(!annotationModel) { return true; }
+				var model = editor.getModel();
+				var currentOffset = editor.getCaretOffset();
+				var annotations = annotationModel.getAnnotations(currentOffset, model.getCharCount());
+				while(annotations.hasNext()) {
+					var annotation = annotations.next();
+					if(annotation.start <= currentOffset) { continue; }
+					if(annotation.type !== mAnnotations.AnnotationType.ANNOTATION_ERROR && 
+					   annotation.type !== mAnnotations.AnnotationType.ANNOTATION_WARNING && 
+					   annotation.type !== mAnnotations.AnnotationType.ANNOTATION_TASK) { continue; }
+					var tooltip = mTooltip.Tooltip.getTooltip(this.textView);
+					if (!tooltip) { return true; }
+					var nextLine = model.getLineAtOffset(annotation.start);
+					var view = this.textView;
+					var callback = function() {
+						setTimeout( function() {
+							tooltip.setTarget({
+								y: view.getLinePixel(nextLine),
+								getTooltipInfo: function() {
+									return { contents: [annotation],
+											 x: view.convert({x: view.getLocationAtOffset(annotation.start).x}, "document", "page").x,
+											 y: view.convert({y: view.getLocationAtOffset(model.getLineStart(nextLine)).y}, "document", "page").y + view.getLineHeight(nextLine) + 2
+										   };
+								}
+							}, 0);
+						}, 0);
+					};
+					editor.moveSelection(annotation.start, annotation.start, callback);
+					break;
+				}
+				return true;
+			}.bind(this));
+			
+			this.textView.setKeyBinding(new mKeyBinding.KeyBinding(188, true), messages.prevAnnotation);
+			this.textView.setAction(messages.prevAnnotation, function() {
+				var editor = this.editor;
+				var annotationModel = editor.getAnnotationModel();
+				if(!annotationModel) { return true; }
+				var model = editor.getModel();
+				var currentOffset = editor.getCaretOffset();
+				var annotations = annotationModel.getAnnotations(0, currentOffset);
+				var previousAnnotation = null;
+				while(annotations.hasNext()) {
+					var annotation = annotations.next();
+					if(annotation.start >= currentOffset) { continue; }
+					if(annotation.type !== mAnnotations.AnnotationType.ANNOTATION_ERROR && 
+					   annotation.type !== mAnnotations.AnnotationType.ANNOTATION_WARNING && 
+					   annotation.type !== mAnnotations.AnnotationType.ANNOTATION_TASK) { continue; }
+					previousAnnotation = annotation;
+				}
+				if(previousAnnotation) {
+					var nextLine = model.getLineAtOffset(previousAnnotation.start);
+					var tooltip = mTooltip.Tooltip.getTooltip(this.textView);
+					if (!tooltip) { return true; }
+					var view = this.textView;
+					var callback = function() {
+						setTimeout( function() {
+							tooltip.setTarget({
+								y: view.getLinePixel(nextLine),
+								getTooltipInfo: function() {
+									return { contents: [previousAnnotation],
+											 x: view.convert({x: view.getLocationAtOffset(previousAnnotation.start).x}, "document", "page").x,
+											 y: view.convert({y: view.getLocationAtOffset(model.getLineStart(nextLine)).y}, "document", "page").y + view.getLineHeight(nextLine) + 2
+										   };
+								}
+							}, 0);
+						}, 0);
+					};
+					editor.moveSelection(previousAnnotation.start, previousAnnotation.start, callback);
 				}
 				return true;
 			}.bind(this));
